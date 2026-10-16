@@ -10,6 +10,13 @@ const GOAL_H = 150;
 const UP = new THREE.Vector3(0, 1, 0);
 const tmpV = new THREE.Vector3();
 
+function angleLerp(a, b, t) {
+  let d = b - a;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return a + d * t;
+}
+
 function fieldTexture() {
   const S = 1;
   const cv = document.createElement("canvas");
@@ -144,7 +151,7 @@ export class Renderer3D {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color("#0a1420");
-    this.scene.fog = new THREE.Fog("#0a1420", 1400, 2600);
+    this.scene.fog = new THREE.Fog("#0a1420", 1900, 3400);
     this.camera = new THREE.PerspectiveCamera(52, 1, 1, 8000);
     this.nameTex = new Map();
     this.netTex = netTexture();
@@ -298,49 +305,70 @@ export class Renderer3D {
       });
       g.add(inst);
     } else {
-      const body = new THREE.Mesh(
-        new THREE.CapsuleGeometry(13, 22, 6, 14),
-        new THREE.MeshStandardMaterial({
-          color: isGk ? TEAM[p.team].gk : TEAM[p.team].color,
-          roughness: 0.55,
-        })
-      );
-      body.position.y = 24;
-      body.castShadow = true;
-      g.add(body);
-      const head = new THREE.Mesh(
-        new THREE.SphereGeometry(10, 18, 14),
-        new THREE.MeshStandardMaterial({ color: "#ffe0c2", roughness: 0.6 })
-      );
-      head.position.y = 48;
+      const skin = new THREE.MeshStandardMaterial({ color: "#ffd9b3", roughness: 0.6 });
+      const kit = new THREE.MeshStandardMaterial({
+        color: isGk ? TEAM[p.team].gk : TEAM[p.team].color,
+        roughness: 0.55,
+      });
+      const dark = new THREE.MeshStandardMaterial({ color: "#20242e", roughness: 0.5 });
+      const torso = new THREE.Mesh(new THREE.CapsuleGeometry(10, 16, 6, 14), kit);
+      torso.position.y = 34;
+      torso.castShadow = true;
+      g.add(torso);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(9, 18, 14), skin);
+      head.position.y = 55;
       head.castShadow = true;
       g.add(head);
-      const visor = new THREE.Mesh(
-        new THREE.BoxGeometry(15, 6, 4),
-        new THREE.MeshStandardMaterial({ color: "#20242e" })
-      );
-      visor.position.set(0, 48, 9);
+      const visor = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 3), dark);
+      visor.position.set(0, 55, 8);
       g.add(visor);
+      const armGeo = new THREE.CylinderGeometry(3, 3, 20, 8);
+      const mkArm = (side) => {
+        const grp = new THREE.Group();
+        grp.position.set(12 * side, 44, 0);
+        const mesh = new THREE.Mesh(armGeo, skin);
+        mesh.position.y = -10;
+        mesh.castShadow = true;
+        grp.add(mesh);
+        g.add(grp);
+        return grp;
+      };
+      const armL = mkArm(-1);
+      const armR = mkArm(1);
+      const fist = new THREE.Mesh(new THREE.SphereGeometry(5, 12, 10), skin);
+      fist.position.set(0, -21, 2);
+      fist.castShadow = true;
+      armR.add(fist);
+      const legGeo = new THREE.CylinderGeometry(4, 3, 22, 8);
+      const mkLeg = (side) => {
+        const grp = new THREE.Group();
+        grp.position.set(5 * side, 22, 0);
+        const mesh = new THREE.Mesh(legGeo, dark);
+        mesh.position.y = -11;
+        mesh.castShadow = true;
+        grp.add(mesh);
+        g.add(grp);
+        return grp;
+      };
+      const legL = mkLeg(-1);
+      const legR = mkLeg(1);
+      g.userData.armL = armL;
+      g.userData.armR = armR;
+      g.userData.legL = legL;
+      g.userData.legR = legR;
+      g.userData.anim = 0;
     }
-    const fist = new THREE.Mesh(
-      new THREE.SphereGeometry(6, 12, 10),
-      new THREE.MeshStandardMaterial({ color: "#ffe0c2", roughness: 0.6 })
-    );
-    fist.position.set(7, 30, 16);
-    fist.castShadow = true;
-    g.add(fist);
-    g.userData.fist = fist;
     const aura = new THREE.Mesh(
       new THREE.TorusGeometry(22, 3, 8, 28),
       new THREE.MeshBasicMaterial({ color: "#7dd3fc", transparent: true, opacity: 0.75 })
     );
     aura.rotation.x = Math.PI / 2;
-    aura.position.y = 26;
+    aura.position.y = 30;
     aura.visible = false;
     g.add(aura);
     g.userData.aura = aura;
     const label = this.nameSprite(p.name.length > 12 ? p.name.slice(0, 11) + "…" : p.name);
-    label.position.y = 72;
+    label.position.y = 80;
     g.add(label);
     return g;
   }
@@ -657,9 +685,14 @@ export class Renderer3D {
     this.camera.updateProjectionMatrix();
   }
 
-  posePlayer(g, p) {
+  posePlayer(g, p, dt) {
     g.position.set(p.x, p.z, p.y);
     const yaw = Math.PI / 2 - p.facing;
+    const spd = Math.hypot(p.vx, p.vy);
+    const speedN = clamp(spd / 300, 0, 1);
+    let anim = g.userData.anim || 0;
+    anim += spd * dt * 0.045;
+    g.userData.anim = anim;
     if (p.state === PSTATE.slide) {
       g.rotation.set(-1.5, yaw, 0);
       g.position.y = p.z + 8;
@@ -668,12 +701,41 @@ export class Renderer3D {
     } else if (p.state === PSTATE.stun) {
       g.rotation.set(0, yaw, Math.sin(p.x * 0.3 + p.y * 0.2) * 0.25);
     } else if (p.state === PSTATE.punch) {
-      g.rotation.set(-0.25, yaw, 0);
+      g.rotation.set(-0.15, yaw, 0);
     } else {
       g.rotation.set(0, yaw, 0);
     }
-    if (g.userData.fist) {
-      g.userData.fist.position.z = p.state === PSTATE.punch ? 34 : 16;
+    const armL = g.userData.armL;
+    const armR = g.userData.armR;
+    const legL = g.userData.legL;
+    const legR = g.userData.legR;
+    if (!legL) return;
+    const swing = Math.sin(anim) * 0.75 * speedN;
+    if (p.state === PSTATE.slide) {
+      legL.rotation.x = -0.5;
+      legR.rotation.x = 0.6;
+      armL.rotation.x = 0.8;
+      armR.rotation.x = 0.8;
+    } else if (p.state === PSTATE.fly) {
+      legL.rotation.x = -0.3;
+      legR.rotation.x = -0.5;
+      armL.rotation.x = -0.9;
+      armR.rotation.x = -0.9;
+    } else if (p.state === PSTATE.punch) {
+      armR.rotation.x = -1.5;
+      armL.rotation.x = 0.35;
+      legL.rotation.x = 0.2;
+      legR.rotation.x = -0.2;
+    } else if (p.z > 3) {
+      legL.rotation.x = -0.5;
+      legR.rotation.x = 0.35;
+      armL.rotation.x = -0.7;
+      armR.rotation.x = -0.7;
+    } else {
+      legL.rotation.x = swing;
+      legR.rotation.x = -swing;
+      armL.rotation.x = -swing * 0.9;
+      armR.rotation.x = swing * 0.9;
     }
   }
 
@@ -690,14 +752,14 @@ export class Renderer3D {
         this.scene.add(m);
         this.meshes.set(p.id, m);
       }
-      this.posePlayer(m, p);
+      this.posePlayer(m, p, dt);
       if (m.userData.aura) {
         m.userData.aura.visible = (p.turbo || 0) > 0;
         if (p.turbo > 0) m.userData.aura.scale.setScalar(1 + 0.08 * Math.sin(now / 120));
       }
       if (p.id === view.localId) {
         this.ring.visible = true;
-        this.ring.position.set(p.x, 0.6 + p.z, p.y);
+        this.ring.position.set(p.x, 0.6, p.y);
         this.ringMat.color.set(p.team === "a" ? TEAM.a.color : TEAM.b.color);
       }
     }
@@ -731,27 +793,26 @@ export class Renderer3D {
   updateCamera(view, lp, dt) {
     const bx = view.ball ? view.ball.x : F.w / 2;
     const bz = view.ball ? view.ball.y : F.h / 2;
-    let fx;
-    let fz;
-    let cx;
-    let cz;
     if (lp) {
-      const fYaw = lp.facing;
-      fx = Math.cos(fYaw);
-      fz = Math.sin(fYaw);
-      const dist = 300;
-      const height = 210;
-      cx = lp.x - fx * dist;
-      cz = lp.y - fz * dist;
-      this.camPos.lerp(tmpV.set(cx, height + lp.z * 0.4, cz), 1 - Math.exp(-6 * dt));
-      const ahead = 120;
-      this.camLook.lerp(tmpV.set(lp.x + fx * ahead, 20, lp.y + fz * ahead), 1 - Math.exp(-8 * dt));
+      if (this.camYaw === undefined || this.camYaw === null) this.camYaw = lp.facing;
+      this.camYaw = angleLerp(this.camYaw, lp.facing, 1 - Math.exp(-3.5 * dt));
+      const fx = Math.cos(this.camYaw);
+      const fz = Math.sin(this.camYaw);
+      const dist = 320;
+      const height = 185;
+      this.camPos.lerp(
+        tmpV.set(lp.x - fx * dist, height + lp.z * 0.5, lp.y - fz * dist),
+        1 - Math.exp(-7 * dt)
+      );
+      const ahead = 130;
+      this.camLook.lerp(tmpV.set(lp.x + fx * ahead, 26, lp.y + fz * ahead), 1 - Math.exp(-9 * dt));
     } else {
       const dist = 430;
       const height = 330;
       this.camPos.lerp(tmpV.set(bx - dist * 0.7, height, bz - dist * 0.55), 1 - Math.exp(-4 * dt));
       this.camLook.lerp(tmpV.set(bx, 10, bz), 1 - Math.exp(-6 * dt));
     }
+    if (this.camPos.y < 45) this.camPos.y = 45;
     const sx = this.shake ? rand(-this.shake, this.shake) : 0;
     const sy = this.shake ? rand(-this.shake, this.shake) : 0;
     this.camera.position.copy(this.camPos);
