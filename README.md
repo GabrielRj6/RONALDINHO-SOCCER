@@ -1,7 +1,7 @@
 # RONALDINHO SOCCER
 
 Futebol experimental de navegador, multiplayer online de até 10 jogadores, sem instalar nada.
-Feito com canvas 2D puro e WebRTC (PeerJS) — hospedagem 100% estática.
+Feito com canvas 2D puro (com um modo 3D opcional em Three.js) e WebRTC (PeerJS) — hospedagem 100% estática.
 
 ## Jogar
 
@@ -22,12 +22,25 @@ As vagas livres são preenchidas por bots e vão sendo trocadas por humanos conf
 | **Shift** | correr (gasta fôlego) |
 | **Espaço** | pular |
 | **E** | carrinho (desarme) |
-| **F** | chutar (segure pra carregar) |
+| **F** | chutar (segure pra carregar; no talo vira **super chute**) |
+| **J** | soco |
+| **K** | voadora |
+| **R** | **especial** (quando a barra enche → modo turbo) |
+| **T** | painel de times (trocar de time / nome na blusa) |
+| **V** | alternar **2D / 3D** |
 | **M** | ligar/desligar som |
 | **H** | mostrar/ocultar ajuda |
 | **Esc** | sair da sala |
 
-Times: **AZUL** defende o gol da esquerda, **VERMELHO** o da direita. No lobby dá pra trocar de time e pegar o gol.
+Times: **AZUL** defende o gol da esquerda, **VERMELHO** o da direita. Aperte **T** a qualquer momento pra abrir o painel de times, trocar de lado, escolher linha/goleiro e editar o **nome na blusa** (cada um edita o seu; só o anfitrião renomeia os times).
+
+**Especial / turbo**: a barra enche com o tempo e com ações (chutes, desarmes, defesas, domínio). Quando estiver cheia, aperte **R** pra virar o **modo turbo** por alguns segundos: mais rápido, chute mais forte e imune a atordoamento.
+
+**Evento STUKA**: de tempos em tempos um avião atravessa o campo rodeando e solta uma bomba em um jogador aleatório (ou no meio da galera). Quem estiver perto é arremessado e atordoado — quem estiver em modo turbo não se abala.
+
+## Modo 3D
+
+Aperte **V** (ou o botão no canto) pra alternar entre o campo 2D clássico e uma câmera **3D** (Three.js) atrás do seu personagem. O 3D é só visual: a física continua a mesma. Se o navegador não tiver WebGL, ele avisa e segue no 2D. Dá pra largar modelos próprios em `modelos/ball.glb` e `modelos/player.glb` (exportados do Blender) que o 3D usa automaticamente; sem eles, usa o visual procedural.
 
 ## Rodar localmente
 
@@ -66,8 +79,10 @@ Arquivos:
 - `js/ai.js` — bots (linha e goleiro).
 - `js/net.js` — host e cliente PeerJS.
 - `js/game.js` — loop, modos (treino/host/cliente), predição e reconciliação.
-- `js/render.js` — desenho (campo, jogadores, bola, partículas, minimapa).
+- `js/render.js` — desenho 2D (campo, jogadores, bola, partículas, minimapa).
+- `js/render3d.js` — renderer 3D opcional (Three.js), carregado só ao ativar o modo 3D.
 - `js/input.js`, `js/audio.js`, `js/ui.js`, `js/main.js` — entrada, som, telas e bootstrap.
+- `modelos/` — modelos 3D opcionais (`ball.glb`, `player.glb`).
 
 ## Limitações conhecidas
 

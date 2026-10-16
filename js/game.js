@@ -1,4 +1,4 @@
-import { CFG, PSTATE } from "./config.js";
+import { CFG, PSTATE, TEAM } from "./config.js";
 import { World, stepPlayer, collidePair, spawnFor } from "./sim.js";
 import { botBits, createBot } from "./ai.js";
 import { Renderer } from "./render.js";
@@ -12,8 +12,12 @@ const F = CFG.field;
 const P = CFG.player;
 
 export class Game {
-  constructor(canvas, input, hooks) {
+  constructor(canvas, input, hooks, canvas3d) {
     this.r = new Renderer(canvas);
+    this.canvas = canvas;
+    this.canvas3d = canvas3d || null;
+    this.r3d = null;
+    this.use3d = false;
     this.input = input;
     this.h = hooks;
     this.mode = null;
@@ -41,6 +45,7 @@ export class Game {
     this.hostMeta = null;
     this.codeAttempts = 0;
     this.name = "Jogador";
+    this.teamNames = { a: TEAM.a.name, b: TEAM.b.name };
     this.loop = this.loop.bind(this);
     requestAnimationFrame(this.loop);
   }
@@ -70,6 +75,7 @@ export class Game {
     this.hostTick = 0;
     this.prevPhase = null;
     this.prevScore = { a: -1, b: -1 };
+    this.teamNames = { a: TEAM.a.name, b: TEAM.b.name };
   }
 
   sanitizeName(n) {
@@ -96,13 +102,17 @@ export class Game {
     this.roster = this.rosterList();
     this.rosterMap = {};
     for (const r of this.roster) this.rosterMap[r.id] = r;
-    this.h.onRoster && this.h.onRoster(this.roster);
+    this.h.onRoster && this.h.onRoster(this.roster, { ...this.teamNames });
   }
 
   broadcastRoster() {
     this.emitRoster();
     if (this.net && this.mode === "host") {
-      this.net.broadcast({ k: "r", list: this.roster.map((x) => ({ ...x })) });
+      this.net.broadcast({
+        k: "r",
+        list: this.roster.map((x) => ({ ...x })),
+        names: { ...this.teamNames },
+      });
     }
   }
 
@@ -263,6 +273,7 @@ export class Game {
           k: "w",
           tid: id,
           list: this.roster.map((x) => ({ ...x })),
+          names: { ...this.teamNames },
           ph: this.world.phase,
           tm: this.world.timer,
           sc: [this.world.score.a, this.world.score.b],
@@ -272,17 +283,27 @@ export class Game {
       onMeta: (id, m) => {
         const p = this.world.find(id);
         if (!p) return;
-        const tm = m.tm === "b" ? "b" : "a";
-        if (m.tm && tm !== p.team && this.world.teamCount(tm) >= CFG.perTeam) {
-          this.net.send(id, { k: "err", msg: "time cheio" });
-          return;
+        if (m.nm !== undefined) p.name = this.sanitizeName(m.nm);
+        if (m.tm && (m.tm === "a" || m.tm === "b") && m.tm !== p.team) {
+          if (this.world.teamCount(m.tm) >= CFG.perTeam) {
+            this.net.send(id, { k: "err", msg: "time cheio" });
+          } else {
+            this.applyTeam(id, m.tm);
+          }
         }
-        if (m.rl === "gk" && this.world.players.some((q) => q.team === tm && q.role === "gk" && q.id !== id)) {
-          this.net.send(id, { k: "err", msg: "ja tem goleiro" });
-          return;
+        if (m.rl) {
+          const rl = m.rl === "gk" ? "gk" : "line";
+          if (
+            rl === "gk" &&
+            this.world.players.some(
+              (q) => q.team === p.team && q.role === "gk" && q.id !== id
+            )
+          ) {
+            this.net.send(id, { k: "err", msg: "ja tem goleiro" });
+          } else {
+            this.world.setRole(id, rl);
+          }
         }
-        if (m.tm) this.world.setTeam(id, tm);
-        if (m.rl) this.world.setRole(id, m.rl === "gk" ? "gk" : "line");
         this.broadcastRoster();
       },
       onInput: (id, s, b) => {
@@ -352,16 +373,18 @@ export class Game {
       case "w": {
         this.myId = m.tid;
         this.roster = m.list || [];
+        if (m.names) this.teamNames = { a: m.names.a || TEAM.a.name, b: m.names.b || TEAM.b.name };
         for (const r of this.roster) this.rosterMap[r.id] = r;
         const me = this.rosterMap[this.myId];
         if (me) {
           this.localP = this.makeLocal(me);
         }
-        this.h.onRoster && this.h.onRoster(this.roster);
+        this.h.onRoster && this.h.onRoster(this.roster, { ...this.teamNames });
         break;
       }
       case "r": {
         this.roster = (m.list || []).map((x) => ({ bot: false, ...x }));
+        if (m.names) this.teamNames = { a: m.names.a || TEAM.a.name, b: m.names.b || TEAM.b.name };
         this.rosterMap = {};
         for (const r of this.roster) this.rosterMap[r.id] = r;
         const me = this.rosterMap[this.myId];
@@ -370,7 +393,7 @@ export class Game {
           this.localP.role = me.rl;
           this.localP.name = me.nm;
         }
-        this.h.onRoster && this.h.onRoster(this.roster);
+        this.h.onRoster && this.h.onRoster(this.roster, { ...this.teamNames });
         break;
       }
       case "s":
@@ -410,10 +433,18 @@ export class Game {
       slideT: 0,
       slideCd: 0,
       claimCd: 0,
+      punchT: 0,
+      punchCd: 0,
+      punchHitIds: {},
+      flyT: 0,
+      flyCd: 0,
+      flyHitIds: {},
       grace: 0,
       charge: 0,
       holdT: 0,
       stamina: P.staminaMax,
+      special: 0,
+      turbo: 0,
       sprintLock: false,
       slideHitBall: false,
       hitIds: {},
@@ -427,7 +458,7 @@ export class Game {
     this.snaps.push({ arr, s: m });
     if (this.snaps.length > 30) this.snaps.shift();
     if (m.ev) {
-      this.r.spawnEvents(m.ev);
+      this.activeR().spawnEvents(m.ev);
       for (const ev of m.ev) Sfx.play(ev);
     }
     this.gw.ball.owner = m.o || null;
@@ -447,6 +478,8 @@ export class Game {
     lp.vy = row[5];
     lp.facing = row[6];
     lp.stamina = row[9];
+    lp.special = row[11];
+    lp.turbo = row[12];
     const st = row[7];
     const keepSlide = lp.state === PSTATE.slide && st !== PSTATE.slide && lp.slideT > 0.12;
     if (!keepSlide) {
@@ -500,7 +533,7 @@ export class Game {
       this.hostTick += 1;
       if (w.events.length) {
         const evs = w.events.splice(0, w.events.length);
-        this.r.spawnEvents(evs);
+        this.activeR().spawnEvents(evs);
         for (const ev of evs) Sfx.play(ev);
         if (this.mode === "host") this.evAcc.push(...evs);
       }
@@ -544,6 +577,8 @@ export class Game {
       this.lastSeq.get(p.id) || 0,
       r1(p.stamina),
       r2(p.charge),
+      r1(p.special),
+      r2(p.turbo),
     ]);
     const b = w.ball;
     this.net.broadcast({
@@ -611,6 +646,8 @@ export class Game {
         state: r[7],
         stamina: r[9],
         charge: r[10],
+        special: r[11],
+        turbo: r[12],
         vx,
         vy,
       };
@@ -623,6 +660,8 @@ export class Game {
         ent.state = lp.state;
         ent.stamina = lp.stamina;
         ent.charge = lp.charge;
+        ent.special = lp.special;
+        ent.turbo = lp.turbo;
         ent.name = lp.name;
         ent.team = lp.team;
         ent.role = lp.role;
@@ -681,17 +720,91 @@ export class Game {
     }
   }
 
+  setTeamName(team, name) {
+    if (team !== "a" && team !== "b") return;
+    if (this.mode === "client" || !this.world) return;
+    const fallback = team === "a" ? TEAM.a.name : TEAM.b.name;
+    const nm =
+      String(name || "")
+        .replace(/[<>]/g, "")
+        .trim()
+        .slice(0, 12) || fallback;
+    this.teamNames[team] = nm;
+    if (this.mode === "host") this.broadcastRoster();
+    else this.emitRoster();
+  }
+
+  setPlayerName(name) {
+    const raw = String(name || "")
+      .replace(/[<>]/g, "")
+      .trim()
+      .slice(0, 14);
+    if (this.mode === "client") {
+      if (raw) this.net.send({ k: "m", nm: raw });
+      return;
+    }
+    if (!this.world) return;
+    const me = this.world.find("me");
+    if (!me || !raw) return;
+    me.name = raw;
+    this.name = raw;
+    if (this.mode === "host") this.broadcastRoster();
+    else this.emitRoster();
+  }
+
+  respawn(p) {
+    const idx =
+      p.role === "gk"
+        ? -1
+        : this.world.players.filter(
+            (q) => q.team === p.team && q.role !== "gk" && q !== p
+          ).length;
+    const s = spawnFor(p.team, idx);
+    p.x = s.x;
+    p.y = s.y;
+    p.z = 0;
+    p.vx = 0;
+    p.vy = 0;
+    p.vz = 0;
+    p.facing = p.team === "a" ? 0 : Math.PI;
+    p.state = PSTATE.normal;
+    p.stunT = CFG.player.stunTime;
+    p.slideT = 0;
+    p.charge = 0;
+    p.punchT = 0;
+    p.punchCd = 0;
+    p.flyT = 0;
+    p.flyCd = 0;
+  }
+
+  applyTeam(id, team) {
+    if (!this.world || (team !== "a" && team !== "b")) return;
+    const p = this.world.find(id);
+    if (!p || p.team === team) return;
+    if (p.role === "gk") {
+      const gk = this.world.players.find(
+        (q) => q.team === team && q.role === "gk" && q.id !== id
+      );
+      if (gk) this.world.setRole(id, "line");
+    }
+    this.world.setTeam(id, team);
+    this.respawn(p);
+  }
+
   requestTeam(team) {
+    if (team !== "a" && team !== "b") return;
     if (this.mode === "client") {
       this.net.send({ k: "m", tm: team });
       return;
     }
     if (!this.world || !this.world.find("me")) return;
-    if (this.world.teamCount(team) >= CFG.perTeam && this.world.find("me").team !== team) {
+    const me = this.world.find("me");
+    if (me.team === team) return;
+    if (this.world.teamCount(team) >= CFG.perTeam) {
       this.h.onToast && this.h.onToast("time cheio");
       return;
     }
-    this.world.setTeam("me", team);
+    this.applyTeam("me", team);
     if (this.mode === "host") this.broadcastRoster();
     else this.emitRoster();
   }
@@ -715,12 +828,52 @@ export class Game {
     else this.emitRoster();
   }
 
+  activeR() {
+    return this.use3d && this.r3d ? this.r3d : this.r;
+  }
+
+  resize() {
+    this.activeR().resize();
+  }
+
+  async setView(mode) {
+    if (mode === "3d") {
+      if (!this.canvas3d) {
+        this.h.onToast && this.h.onToast("3D indisponível neste navegador");
+        return;
+      }
+      if (!this.r3d) {
+        try {
+          const mod = await import("./render3d.js");
+          this.r3d = new mod.Renderer3D(this.canvas3d);
+        } catch (e) {
+          this.h.onToast && this.h.onToast("não deu pra carregar o 3D");
+          return;
+        }
+      }
+      this.use3d = true;
+      this.canvas3d.classList.remove("hidden");
+      this.canvas.classList.add("hidden");
+      this.r3d.resize();
+    } else {
+      this.use3d = false;
+      this.canvas.classList.remove("hidden");
+      if (this.canvas3d) this.canvas3d.classList.add("hidden");
+      this.r.resize();
+    }
+    this.h.onView && this.h.onView(this.use3d ? "3d" : "2d");
+  }
+
+  toggleView() {
+    return this.setView(this.use3d ? "2d" : "3d");
+  }
+
   loop(now) {
     requestAnimationFrame(this.loop);
     const dt = Math.min(0.1, Math.max(0, (now - this.last) / 1000));
     this.last = now;
     if (!this.mode) {
-      this.r.draw(
+      this.activeR().draw(
         { phase: "lobby", timer: 0, cdT: 0, score: { a: 0, b: 0 }, players: [], ball: null, localId: null },
         dt,
         now
@@ -730,7 +883,7 @@ export class Game {
     if (this.mode === "local" || this.mode === "host") this.stepLocal(dt);
     else this.stepClient(dt);
     const view = this.mode === "client" ? this.interpView() : this.worldView();
-    this.r.draw(view, dt, now);
+    this.activeR().draw(view, dt, now);
     this.hudHooks(view);
   }
 

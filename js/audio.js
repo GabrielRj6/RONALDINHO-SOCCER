@@ -105,6 +105,30 @@ export const Sfx = {
         noise(0.22, 0.55, 1500, 0.8);
         tone(90, 0.16, "sawtooth", 0.3, 45);
         break;
+      case "punch":
+        noise(0.06, 0.5, 520, 1);
+        tone(120, 0.08, "square", 0.35, 60);
+        break;
+      case "voadora":
+        tone(760, 0.18, "sawtooth", 0.22, 180);
+        break;
+      case "voadorahit":
+        noise(0.2, 0.6, 950, 0.7);
+        tone(82, 0.18, "sawtooth", 0.4, 40);
+        break;
+      case "special":
+        noise(0.3, 0.5, 1800, 0.7);
+        [523, 784, 1046, 1568].forEach((f, i) => tone(f, 0.16, "square", 0.28, null, i * 0.06));
+        break;
+      case "stuka":
+        tone(950, 1.7, "sawtooth", 0.1, 210);
+        noise(1.7, 0.06, 900, 0.6);
+        break;
+      case "boom":
+        noise(0.65, 0.9, 420, 0.5);
+        tone(72, 0.5, "sawtooth", 0.5, 28);
+        tone(150, 0.34, "square", 0.3, 40, 0.02);
+        break;
       case "jump":
         tone(320, 0.1, "square", 0.14, 620);
         break;

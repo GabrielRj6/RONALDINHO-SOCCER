@@ -25,6 +25,7 @@ export class Renderer {
     this.shake = 0;
     this.particles = [];
     this.spin = 0;
+    this.plane = null;
     this.W = 0;
     this.H = 0;
     this.dpr = 1;
@@ -125,10 +126,49 @@ export class Renderer {
     }
   }
 
+  explosion(x, y, r) {
+    this.shake = Math.max(this.shake, 30);
+    const cols = ["#fff3b0", "#ffb703", "#fb8500", "#ef476f", "#ffffff"];
+    for (let i = 0; i < 60; i++) {
+      const a = rand(0, Math.PI * 2);
+      const sp = rand(80, 520);
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp,
+        life: 0,
+        maxLife: rand(0.35, 0.9),
+        size: rand(3, 10),
+        color: cols[(Math.random() * cols.length) | 0],
+        grav: 300,
+        shape: Math.random() < 0.4 ? "conf" : "dot",
+        rot: rand(0, 6),
+        vr: rand(-8, 8),
+      });
+    }
+    this.puff(x, y, 40, "rgba(255,180,80,0.6)");
+  }
+
   spawnEvents(events) {
     if (!events) return;
     for (const ev of events) {
       switch (ev.k) {
+        case "stuka":
+          this.plane = {
+            t: 0,
+            dur: ev.dur,
+            sx: ev.sx,
+            sy: ev.sy,
+            px: ev.px,
+            py: ev.py,
+            tx: ev.tx,
+            ty: ev.ty,
+          };
+          break;
+        case "boom":
+          this.explosion(ev.x, ev.y, ev.r);
+          break;
         case "goal":
           this.shake = Math.max(this.shake, 22);
           this.confetti(ev.x, ev.y, TEAM[ev.team].color);
@@ -224,6 +264,7 @@ export class Renderer {
     for (const p of players) this.drawPlayer(ctx, p, view, now);
     if (ball) this.drawBall(ctx, ball, dt);
     this.drawParticles(ctx);
+    this.drawPlane(ctx, dt);
 
     ctx.restore();
     this.drawVignette(ctx);
@@ -358,13 +399,22 @@ export class Renderer {
       ctx.stroke();
     }
 
+    if (p.turbo > 0) {
+      const pulse = 0.6 + 0.4 * Math.sin(now / 90);
+      ctx.strokeStyle = "rgba(125,211,252," + (0.45 + 0.4 * pulse).toFixed(2) + ")";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, P.r + 10 + pulse * 3, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
     const body = p.role === "gk" ? t.gk : t.color;
     const outline = p.role === "gk" ? "#3f3f10" : t.dark;
 
-    if (p.state === PSTATE.slide || p.state === PSTATE.stun) {
+    if (p.state === PSTATE.slide || p.state === PSTATE.stun || p.state === PSTATE.fly) {
       ctx.save();
-      ctx.rotate(p.state === PSTATE.slide ? p.facing : p.facing + Math.PI / 2);
-      const rx = p.state === PSTATE.slide ? 24 : 20;
+      ctx.rotate(p.state === PSTATE.stun ? p.facing + Math.PI / 2 : p.facing);
+      const rx = p.state === PSTATE.slide ? 24 : p.state === PSTATE.fly ? 28 : 20;
       ctx.fillStyle = body;
       ctx.strokeStyle = outline;
       ctx.lineWidth = 3;
@@ -384,6 +434,11 @@ export class Renderer {
         ctx.rotate(-(p.facing + Math.PI / 2));
         ctx.fillText("~", 0, -16);
         ctx.restore();
+      } else if (p.state === PSTATE.fly) {
+        ctx.fillStyle = "rgba(255,255,255,0.85)";
+        ctx.beginPath();
+        ctx.ellipse(rx - 2, 0, 8, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
       } else {
         ctx.fillStyle = "rgba(255,255,255,0.75)";
         ctx.beginPath();
@@ -424,6 +479,18 @@ export class Renderer {
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(0, 0, P.r + 4, p.facing - 0.9, p.facing + 0.9);
+        ctx.stroke();
+      }
+
+      if (p.state === PSTATE.punch) {
+        const fx = Math.cos(p.facing) * (P.r + 8);
+        const fy = Math.sin(p.facing) * (P.r + 8);
+        ctx.fillStyle = "#ffe9d2";
+        ctx.strokeStyle = outline;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(fx, fy, 6.5, 0, Math.PI * 2);
+        ctx.fill();
         ctx.stroke();
       }
     }
@@ -507,6 +574,75 @@ export class Renderer {
       }
     }
     ctx.globalAlpha = 1;
+  }
+
+  drawPlane(ctx, dt) {
+    const pl = this.plane;
+    if (!pl) return;
+    pl.t += dt;
+    if (pl.t >= pl.dur) {
+      this.plane = null;
+      return;
+    }
+    const u = pl.t / pl.dur;
+    const iu = 1 - u;
+    const x = iu * iu * pl.sx + 2 * iu * u * pl.px + u * u * pl.tx;
+    const y = iu * iu * pl.sy + 2 * iu * u * pl.py + u * u * pl.ty;
+    const dx = 2 * iu * (pl.px - pl.sx) + 2 * u * (pl.tx - pl.px);
+    const dy = 2 * iu * (pl.py - pl.sy) + 2 * u * (pl.ty - pl.py);
+    const ang = Math.atan2(dy, dx);
+    const alt = (1 - u) * 260 + 34;
+    this.drawShadow(ctx, x, y, 26, alt, 0.22);
+    ctx.save();
+    ctx.translate(x, y - alt * 0.4);
+    ctx.rotate(ang);
+    ctx.fillStyle = "#4b5563";
+    ctx.beginPath();
+    ctx.moveTo(2, -2);
+    ctx.lineTo(-6, -24);
+    ctx.lineTo(-16, -21);
+    ctx.lineTo(-6, -2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(2, 2);
+    ctx.lineTo(-6, 24);
+    ctx.lineTo(-16, 21);
+    ctx.lineTo(-6, 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#6b7280";
+    ctx.beginPath();
+    ctx.moveTo(28, 0);
+    ctx.lineTo(-18, -8);
+    ctx.lineTo(-9, 0);
+    ctx.lineTo(-18, 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#374151";
+    ctx.beginPath();
+    ctx.moveTo(-14, 0);
+    ctx.lineTo(-23, -11);
+    ctx.lineTo(-25, 0);
+    ctx.lineTo(-23, 11);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#111827";
+    ctx.beginPath();
+    ctx.arc(10, 0, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    if (u > 0.78) {
+      const bf = (u - 0.78) / 0.22;
+      const bx = x + (pl.tx - x) * bf;
+      const by = y + (pl.ty - y) * bf;
+      const bz = alt * (1 - bf);
+      this.drawShadow(ctx, bx, by, 5, bz, 0.3);
+      ctx.fillStyle = "#111827";
+      ctx.beginPath();
+      ctx.ellipse(bx, by - bz * 0.4, 5, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   drawVignette(ctx) {

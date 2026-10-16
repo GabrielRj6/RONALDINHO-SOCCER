@@ -32,6 +32,30 @@ export const CFG = {
     dribbleK: 14,
     stealSpeed: 120,
     grace: 0.5,
+    chargeRate: 0.55,
+    superCharge: 0.65,
+    superCost: 22,
+    superBoost: 1.28,
+    chargeDrain: 14,
+    punchTime: 0.26,
+    punchCd: 0.5,
+    punchStun: 0.7,
+    punchKnock: 380,
+    flyTime: 0.55,
+    flyCd: 1.25,
+    flySpeed: 560,
+    flyUp: 340,
+    flyStun: 1.0,
+    flyKnock: 540,
+    specialMax: 100,
+    specialTime: 2.2,
+    specialHold: 7,
+    specialKick: 5,
+    specialHit: 9,
+    specialSave: 7,
+    turboTime: 6,
+    turboSpeed: 1.5,
+    turboKick: 1.35,
   },
   ball: {
     r: 11,
@@ -53,6 +77,16 @@ export const CFG = {
     cd: 3,
     celebrate: 2.4,
   },
+  stuka: {
+    min: 35,
+    max: 75,
+    flight: 2.4,
+    radius: 95,
+    stun: 1.4,
+    knock: 620,
+    up: 280,
+    ballBlast: 900,
+  },
 };
 
 export const BITS = {
@@ -64,9 +98,12 @@ export const BITS = {
   jump: 32,
   kick: 64,
   slide: 128,
+  punch: 256,
+  fly: 512,
+  special: 1024,
 };
 
-export const PSTATE = { normal: 0, slide: 1, stun: 2, hold: 3 };
+export const PSTATE = { normal: 0, slide: 1, stun: 2, hold: 3, punch: 4, fly: 5 };
 
 export const TEAM = {
   a: { name: "AZUL", color: "#3b82f6", dark: "#1d4ed8", gk: "#facc15" },

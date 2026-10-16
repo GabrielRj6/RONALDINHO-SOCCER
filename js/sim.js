@@ -44,8 +44,11 @@ function doKick(w, p) {
   const cs = Math.cos(p.facing);
   const sn = Math.sin(p.facing);
   const held = p.state === PSTATE.hold;
-  const speed = held ? 550 + power * 420 : 480 + power * 560;
-  const vz = held ? 140 + power * 240 : power * 200;
+  const sup = power >= P.superCharge && p.stamina >= P.superCost;
+  if (sup) p.stamina -= P.superCost;
+  const boost = (sup ? P.superBoost : 1) * (p.turbo > 0 ? P.turboKick : 1);
+  const speed = (held ? 550 + power * 420 : 480 + power * 560) * boost;
+  const vz = (held ? 140 + power * 240 : power * 200) * (sup ? 1.15 : 1);
   b.owner = null;
   b.vx = cs * speed;
   b.vy = sn * speed;
@@ -54,6 +57,7 @@ function doKick(w, p) {
   p.claimCd = held ? 0.35 : 0.28;
   p.charge = 0;
   if (held) p.state = PSTATE.normal;
+  fillSpecial(p, P.specialKick);
   w.events.push({
     k: held ? "throw" : "kick",
     id: p.id,
@@ -61,7 +65,20 @@ function doKick(w, p) {
     y: p.y,
     power,
     team: p.team,
+    sup,
   });
+}
+
+function fillSpecial(p, amt) {
+  p.special = Math.min(P.specialMax, p.special + amt);
+}
+
+function stunPlayer(q, t) {
+  if (q.turbo > 0) return false;
+  q.state = PSTATE.stun;
+  q.stunT = t;
+  q.charge = 0;
+  return true;
 }
 
 export function stepPlayer(w, p, bits, dt, ghost = false) {
@@ -69,7 +86,11 @@ export function stepPlayer(w, p, bits, dt, ghost = false) {
   p.bits = bits;
   if (p.claimCd > 0) p.claimCd -= dt;
   if (p.slideCd > 0) p.slideCd -= dt;
+  if (p.punchCd > 0) p.punchCd -= dt;
+  if (p.flyCd > 0) p.flyCd -= dt;
+  if (p.turbo > 0) p.turbo -= dt;
   if (p.grace > 0) p.grace -= dt;
+  if (!ghost) p.special = Math.min(P.specialMax, p.special + P.specialTime * dt);
   if (p.state === PSTATE.hold && w.ball.owner !== p.id) {
     p.state = PSTATE.normal;
     p.charge = 0;
@@ -77,6 +98,9 @@ export function stepPlayer(w, p, bits, dt, ghost = false) {
 
   const jumpEdge = !!(bits & BITS.jump) && !(prev & BITS.jump);
   const slideEdge = !!(bits & BITS.slide) && !(prev & BITS.slide);
+  const punchEdge = !!(bits & BITS.punch) && !(prev & BITS.punch);
+  const flyEdge = !!(bits & BITS.fly) && !(prev & BITS.fly);
+  const specialEdge = !!(bits & BITS.special) && !(prev & BITS.special);
   const kickHeld = !!(bits & BITS.kick);
   const kickRelease = !(bits & BITS.kick) && !!(prev & BITS.kick);
 
@@ -91,6 +115,16 @@ export function stepPlayer(w, p, bits, dt, ghost = false) {
     p.vx *= Math.exp(-2.5 * dt);
     p.vy *= Math.exp(-2.5 * dt);
     if (p.slideT <= 0) p.state = PSTATE.normal;
+  } else if (p.state === PSTATE.punch) {
+    p.punchT -= dt;
+    p.vx *= Math.exp(-7 * dt);
+    p.vy *= Math.exp(-7 * dt);
+    if (p.punchT <= 0) p.state = PSTATE.normal;
+  } else if (p.state === PSTATE.fly) {
+    p.flyT -= dt;
+    p.vx *= Math.exp(-1.6 * dt);
+    p.vy *= Math.exp(-1.6 * dt);
+    if (p.flyT <= 0 || (p.z <= 0 && p.flyT < P.flyTime - 0.12)) p.state = PSTATE.normal;
   } else {
     let ix = (bits & BITS.right ? 1 : 0) - (bits & BITS.left ? 1 : 0);
     let iy = (bits & BITS.down ? 1 : 0) - (bits & BITS.up ? 1 : 0);
@@ -101,7 +135,7 @@ export function stepPlayer(w, p, bits, dt, ghost = false) {
       p.facing = Math.atan2(iy, ix);
     }
     const wantSprint = !!(bits & BITS.sprint) && len > 0 && !p.sprintLock;
-    const max = wantSprint ? P.sprint : P.walk;
+    const max = (wantSprint ? P.sprint : P.walk) * (p.turbo > 0 ? P.turboSpeed : 1);
     if (wantSprint) {
       p.stamina -= P.sprintDrain * dt;
       if (p.stamina <= 0) {
@@ -145,9 +179,59 @@ export function stepPlayer(w, p, bits, dt, ghost = false) {
       }
     }
 
+    if (punchEdge && p.punchCd <= 0 && p.z < 8 && (p.state === PSTATE.normal || p.state === PSTATE.hold)) {
+      p.state = PSTATE.punch;
+      p.punchT = P.punchTime;
+      p.punchCd = P.punchCd;
+      p.punchHitIds = {};
+      if (!ghost && w.ball.owner === p.id) {
+        releaseBall(
+          w,
+          p,
+          Math.cos(p.facing) * 300 + p.vx * 0.3,
+          Math.sin(p.facing) * 300 + p.vy * 0.3,
+          0,
+          0.15,
+          0.35,
+          false
+        );
+      }
+    }
+
+    if (flyEdge && p.flyCd <= 0 && (p.state === PSTATE.normal || p.state === PSTATE.hold)) {
+      p.state = PSTATE.fly;
+      p.flyT = P.flyTime;
+      p.flyCd = P.flyCd;
+      p.flyHitIds = {};
+      p.vx = Math.cos(p.facing) * P.flySpeed;
+      p.vy = Math.sin(p.facing) * P.flySpeed;
+      p.vz = P.flyUp;
+      p.z = Math.max(p.z, 0.01);
+      if (!ghost && w.ball.owner === p.id) {
+        releaseBall(
+          w,
+          p,
+          Math.cos(p.facing) * 400 + p.vx * 0.3,
+          Math.sin(p.facing) * 400 + p.vy * 0.3,
+          40,
+          0.1,
+          0.4,
+          false
+        );
+      }
+      if (!ghost) w.events.push({ k: "voadora", id: p.id, x: p.x, y: p.y });
+    }
+
+    if (specialEdge && p.special >= P.specialMax && p.turbo <= 0) {
+      p.special = 0;
+      p.turbo = P.turboTime;
+      if (!ghost) w.events.push({ k: "special", id: p.id, x: p.x, y: p.y });
+    }
+
     if (p.state === PSTATE.normal || p.state === PSTATE.hold) {
       if (kickHeld && w.ball.owner === p.id) {
-        p.charge = Math.min(1, p.charge + dt / 0.55);
+        p.charge = Math.min(1, p.charge + dt / P.chargeRate);
+        if (!ghost) p.stamina = Math.max(0, p.stamina - P.chargeDrain * dt);
       } else if (kickRelease && p.charge > 0 && w.ball.owner === p.id) {
         if (!ghost) doKick(w, p);
         else p.charge = 0;
@@ -214,6 +298,8 @@ export class World {
     this.celebT = 0;
     this.score = { a: 0, b: 0 };
     this.events = [];
+    this.stukaCd = rand(CFG.stuka.min, CFG.stuka.max);
+    this.stuka = null;
   }
 
   find(id) {
@@ -242,10 +328,18 @@ export class World {
       slideT: 0,
       slideCd: 0,
       claimCd: 0,
+      punchT: 0,
+      punchCd: 0,
+      punchHitIds: {},
+      flyT: 0,
+      flyCd: 0,
+      flyHitIds: {},
       grace: 0,
       charge: 0,
       holdT: 0,
       stamina: P.staminaMax,
+      special: 0,
+      turbo: 0,
       sprintLock: false,
       slideHitBall: false,
       hitIds: {},
@@ -325,6 +419,12 @@ export class World {
       p.slideT = 0;
       p.slideCd = 0;
       p.claimCd = 0;
+      p.punchT = 0;
+      p.punchCd = 0;
+      p.punchHitIds = {};
+      p.flyT = 0;
+      p.flyCd = 0;
+      p.flyHitIds = {};
       p.grace = 0;
       p.charge = 0;
       p.holdT = 0;
@@ -336,6 +436,8 @@ export class World {
     this.phase = "countdown";
     this.cdT = CFG.match.cd;
     this.cdN = 99;
+    this.stuka = null;
+    this.stukaCd = rand(CFG.stuka.min, CFG.stuka.max);
   }
 
   startMatch() {
@@ -368,6 +470,7 @@ export class World {
         this.phase = "over";
         this.events.push({ k: "over" });
       }
+      this.stepStuka(dt);
     }
     const frozen = this.phase === "countdown" || this.phase === "celebrate";
     for (const p of this.players) {
@@ -376,6 +479,98 @@ export class World {
     this.stepBall(dt);
     this.collideAll();
     this.checkGoals();
+  }
+
+  startStuka() {
+    const cx = F.w / 2;
+    const cy = F.h / 2;
+    const alive = this.players.filter((p) => p.state !== PSTATE.stun);
+    let tx;
+    let ty;
+    if (alive.length && Math.random() < 0.5) {
+      const t = alive[(Math.random() * alive.length) | 0];
+      tx = t.x;
+      ty = t.y;
+    } else {
+      let sx = 0;
+      let sy = 0;
+      for (const p of this.players) {
+        sx += p.x;
+        sy += p.y;
+      }
+      const n = this.players.length || 1;
+      tx = sx / n;
+      ty = sy / n;
+    }
+    tx = clamp(tx, 60, F.w - 60);
+    ty = clamp(ty, 60, F.h - 60);
+    const diag = Math.hypot(F.w, F.h);
+    const r0 = diag * 0.85;
+    const a0 =
+      Math.atan2(ty - cy, tx - cx) + (0.7 + Math.random() * 0.9) * (Math.random() < 0.5 ? 1 : -1);
+    const sx = cx + Math.cos(a0) * r0;
+    const sy = cy + Math.sin(a0) * r0;
+    const mx = (sx + tx) / 2;
+    const my = (sy + ty) / 2;
+    const odx = mx - cx;
+    const ody = my - cy;
+    const od = Math.hypot(odx, ody) || 1;
+    const px = mx + (odx / od) * r0 * 0.45;
+    const py = my + (ody / od) * r0 * 0.45;
+    this.stuka = { t: 0, dur: CFG.stuka.flight, sx, sy, px, py, tx, ty };
+    this.events.push({
+      k: "stuka",
+      sx,
+      sy,
+      px,
+      py,
+      tx,
+      ty,
+      dur: CFG.stuka.flight,
+    });
+  }
+
+  stepStuka(dt) {
+    if (this.stuka) {
+      this.stuka.t += dt;
+      if (this.stuka.t >= this.stuka.dur) this.explodeStuka();
+      return;
+    }
+    this.stukaCd -= dt;
+    if (this.stukaCd <= 0 && this.players.length >= 2) this.startStuka();
+  }
+
+  explodeStuka() {
+    const s = this.stuka;
+    if (!s) return;
+    const R = CFG.stuka.radius;
+    this.events.push({ k: "boom", x: s.tx, y: s.ty, r: R });
+    for (const p of this.players) {
+      if (p.turbo > 0) continue;
+      const d = Math.hypot(p.x - s.tx, p.y - s.ty);
+      if (d > R) continue;
+      const f = 1 - d / R;
+      const ang = d < 1 ? Math.random() * Math.PI * 2 : Math.atan2(p.y - s.ty, p.x - s.tx);
+      stunPlayer(p, CFG.stuka.stun);
+      p.vx += Math.cos(ang) * CFG.stuka.knock * f;
+      p.vy += Math.sin(ang) * CFG.stuka.knock * f;
+      p.vz = Math.max(p.vz, CFG.stuka.up * f);
+    }
+    const b = this.ball;
+    const bd = Math.hypot(b.x - s.tx, b.y - s.ty);
+    if (bd < R * 1.2) {
+      if (b.owner) {
+        const o = this.find(b.owner);
+        if (o) releaseBall(this, o, 0, 0, 0, 0, 0.2, true);
+      }
+      const f = 1 - Math.min(1, bd / (R * 1.2));
+      const ang = bd < 1 ? Math.random() * Math.PI * 2 : Math.atan2(b.y - s.ty, b.x - s.tx);
+      b.vx += Math.cos(ang) * CFG.stuka.ballBlast * f;
+      b.vy += Math.sin(ang) * CFG.stuka.ballBlast * f;
+      b.vz += CFG.stuka.up * 1.2 * f;
+    }
+    this.stuka = null;
+    this.stukaCd = rand(CFG.stuka.min, CFG.stuka.max);
   }
 
   stepBall(dt) {
@@ -406,6 +601,7 @@ export class World {
     if (owned) {
       const o = this.find(b.owner);
       if (o) {
+        fillSpecial(o, P.specialHold * dt);
         if (o.state === PSTATE.hold) {
           o.holdT += dt;
           b.x = o.x + Math.cos(o.facing) * 20;
@@ -469,6 +665,8 @@ export class World {
 
     for (const p of this.players) {
       if (p.state === PSTATE.slide) this.slideContacts(p);
+      else if (p.state === PSTATE.punch) this.punchContacts(p);
+      else if (p.state === PSTATE.fly) this.flyContacts(p);
       else if (b.owner && b.owner !== p.id) this.stealAttempt(p);
     }
     if (!b.owner) this.bounces();
@@ -622,6 +820,7 @@ export class World {
       p.grace = P.grace;
       o.claimCd = 0.45;
       this.events.push({ k: spd(b) > 300 ? "save" : "catch", id: p.id, x: b.x, y: b.y });
+      fillSpecial(p, P.specialSave);
       return;
     }
     const cs = Math.cos(p.facing);
@@ -669,9 +868,7 @@ export class World {
       const d = Math.hypot(q.x - p.x, q.y - p.y);
       if (d >= P.r + P.r + 4) continue;
       p.hitIds[q.id] = 1;
-      q.state = PSTATE.stun;
-      q.stunT = P.stunTime;
-      q.charge = 0;
+      if (stunPlayer(q, P.stunTime)) fillSpecial(p, P.specialHit);
       const cs = Math.cos(p.facing);
       const sn = Math.sin(p.facing);
       q.vx += cs * 280;
@@ -689,6 +886,54 @@ export class World {
         );
       }
       this.events.push({ k: "tackle", id: p.id, vid: q.id, x: q.x, y: q.y });
+    }
+  }
+
+  punchContacts(p) {
+    const b = this.ball;
+    const cs = Math.cos(p.facing);
+    const sn = Math.sin(p.facing);
+    for (const q of this.players) {
+      if (q === p || q.team === p.team) continue;
+      if (p.punchHitIds[q.id]) continue;
+      if (q.z >= 34) continue;
+      const dx = q.x - p.x;
+      const dy = q.y - p.y;
+      const d = Math.hypot(dx, dy) || 1;
+      if (d >= P.r + P.r + 20) continue;
+      if ((dx * cs + dy * sn) / d < 0.15) continue;
+      p.punchHitIds[q.id] = 1;
+      if (stunPlayer(q, P.punchStun)) fillSpecial(p, P.specialHit);
+      q.vx += cs * P.punchKnock;
+      q.vy += sn * P.punchKnock;
+      if (b.owner === q.id) {
+        releaseBall(this, p, cs * 300 + rand(-40, 40), sn * 300 + rand(-40, 40), 30, 0.1, 0.4, true);
+      }
+      this.events.push({ k: "punch", id: p.id, vid: q.id, x: q.x, y: q.y });
+    }
+  }
+
+  flyContacts(p) {
+    const b = this.ball;
+    const cs = Math.cos(p.facing);
+    const sn = Math.sin(p.facing);
+    for (const q of this.players) {
+      if (q === p || q.team === p.team) continue;
+      if (p.flyHitIds[q.id]) continue;
+      if (Math.abs(p.z - q.z) >= 70) continue;
+      const d = Math.hypot(q.x - p.x, q.y - p.y);
+      if (d >= P.r + P.r + 8) continue;
+      p.flyHitIds[q.id] = 1;
+      if (stunPlayer(q, P.flyStun)) fillSpecial(p, P.specialHit);
+      q.vx += cs * P.flyKnock;
+      q.vy += sn * P.flyKnock;
+      q.vz = Math.max(q.vz, 130);
+      p.vx *= 0.3;
+      p.vy *= 0.3;
+      if (b.owner === q.id) {
+        releaseBall(this, p, cs * 420 + rand(-60, 60), sn * 420 + rand(-60, 60), 60, 0.06, 0.4, true);
+      }
+      this.events.push({ k: "voadorahit", id: p.id, vid: q.id, x: q.x, y: q.y });
     }
   }
 

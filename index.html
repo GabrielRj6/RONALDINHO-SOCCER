@@ -9,6 +9,7 @@
 </head>
 <body>
   <canvas id="c"></canvas>
+  <canvas id="c3" class="hidden"></canvas>
 
   <div id="menu" class="screen">
     <div class="panel menu-panel">
@@ -46,16 +47,30 @@
 
   <div id="hud" class="hidden">
     <div class="scorebar">
-      <span class="team ta">AZUL</span>
+      <span class="team ta" id="teamAName">AZUL</span>
       <span id="scoreA" class="score">0</span>
       <span class="sep">×</span>
       <span id="scoreB" class="score">0</span>
-      <span class="team tb">VERMELHO</span>
+      <span class="team tb" id="teamBName">VERMELHO</span>
       <span class="timer" id="timer">3:00</span>
     </div>
     <div id="countdown" class="countdown"></div>
     <div id="goalBanner" class="banner"></div>
+    <div id="pwr" class="pwr hidden">
+      <div class="pwr-track"><i id="stamBar" class="pwr-fill stam"></i></div>
+      <div class="pwr-track"><i id="chargeBar" class="pwr-fill charge"></i></div>
+    </div>
+    <div id="spc" class="spc">
+      <div class="spc-top"><span>ESPECIAL</span><span id="spcHint" class="spc-hint"></span></div>
+      <div class="spc-track"><i id="spcFill" class="spc-fill"></i></div>
+    </div>
   </div>
+
+  <div class="top-btns">
+    <button id="btnView" class="teams-btn hidden">3D <kbd>V</kbd></button>
+    <button id="btnTeams" class="teams-btn hidden">TIMES <kbd>T</kbd></button>
+  </div>
+  <div id="teamPanel" class="team-panel hidden"></div>
 
   <div id="toast" class="toast"></div>
 
@@ -72,6 +87,14 @@
   </div>
 
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

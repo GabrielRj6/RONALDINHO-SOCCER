@@ -14,6 +14,9 @@ const MAP = {
   Space: BITS.jump,
   KeyE: BITS.slide,
   KeyF: BITS.kick,
+  KeyJ: BITS.punch,
+  KeyK: BITS.fly,
+  KeyR: BITS.special,
 };
 
 export class Input {
@@ -23,7 +26,16 @@ export class Input {
     this.onKey = null;
     this._down = (e) => {
       if (e.code === "Space" || e.code.startsWith("Arrow")) e.preventDefault();
-      if (e.code === "KeyM" || e.code === "KeyH" || e.code === "Escape" || e.code === "Enter") {
+      const tag = e.target && e.target.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (
+        e.code === "KeyM" ||
+        e.code === "KeyH" ||
+        e.code === "KeyT" ||
+        e.code === "KeyV" ||
+        e.code === "Escape" ||
+        e.code === "Enter"
+      ) {
         if (this.onKey) this.onKey(e.code);
       }
       if (e.repeat) return;
@@ -61,4 +73,9 @@ export const KEY_HELP = [
   ["ESPAÇO", "pular"],
   ["E", "carrinho"],
   ["F", "chutar (segure)"],
+  ["J", "soco"],
+  ["K", "voadora"],
+  ["R", "especial (quando cheio)"],
+  ["T", "times / trocar"],
+  ["V", "ver 2D/3D"],
 ];

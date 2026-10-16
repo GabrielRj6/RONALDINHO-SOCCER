@@ -1,5 +1,5 @@
-import { TEAM } from "./config.js";
-import { fmtTime, shortId } from "./utils.js";
+import { CFG, TEAM } from "./config.js";
+import { fmtTime, shortId, clamp } from "./utils.js";
 import { KEY_HELP } from "./input.js";
 import { Sfx } from "./audio.js";
 
@@ -13,6 +13,8 @@ export class UI {
     this.goalT = null;
     this.toastT = null;
     this.prev = {};
+    this.names = { a: TEAM.a.name, b: TEAM.b.name };
+    this.view3d = false;
     this.el = {
       menu: $("menu"),
       lobby: $("lobby"),
@@ -36,6 +38,17 @@ export class UI {
       endNote: $("endNote"),
       btnNewMatch: $("btnNewMatch"),
       connectNote: $("connectNote"),
+      btnTeams: $("btnTeams"),
+      teamPanel: $("teamPanel"),
+      teamAName: $("teamAName"),
+      teamBName: $("teamBName"),
+      btnView: $("btnView"),
+      pwr: $("pwr"),
+      stamBar: $("stamBar"),
+      chargeBar: $("chargeBar"),
+      spc: $("spc"),
+      spcFill: $("spcFill"),
+      spcHint: $("spcHint"),
     };
     const saved = localStorage.getItem("gam_nick");
     if (saved) this.el.nick.value = saved;
@@ -105,6 +118,31 @@ export class UI {
       if (b.dataset.act === "team") g.requestTeam(b.dataset.v);
       else g.requestRole(b.dataset.v);
     });
+    this.el.btnTeams.onclick = (e) => {
+      e.target.blur();
+      this.toggleTeams();
+    };
+    this.el.btnView.onclick = (e) => {
+      e.target.blur();
+      g.toggleView();
+    };
+    this.el.teamPanel.addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-act]");
+      if (!b) return;
+      b.blur();
+      if (b.dataset.act === "go") g.requestTeam(b.dataset.v);
+      else if (b.dataset.act === "role") g.requestRole(b.dataset.v);
+    });
+    this.el.teamPanel.addEventListener("change", (e) => {
+      const pn = e.target.closest("input[data-pname]");
+      if (pn) {
+        g.setPlayerName(pn.value);
+        return;
+      }
+      const inp = e.target.closest("input[data-name]");
+      if (inp) g.setTeamName(inp.dataset.name, inp.value);
+    });
+    this.el.teamPanel.addEventListener("keydown", (e) => e.stopPropagation());
   }
 
   saveNick() {
@@ -154,6 +192,13 @@ export class UI {
     this.el.lobby.classList.toggle("hidden", which !== "lobby");
     this.el.end.classList.toggle("hidden", which !== "end");
     this.el.hud.classList.toggle("hidden", which === "menu" || which === "lobby");
+    const inRoom = this.inRoom();
+    this.el.btnTeams.classList.toggle("hidden", !inRoom);
+    this.el.btnView.classList.toggle("hidden", !inRoom);
+    if (!inRoom) {
+      this.el.teamPanel.classList.add("hidden");
+      this.el.pwr.classList.add("hidden");
+    }
     if (which === "menu") this.el.connectNote.textContent = "";
     return true;
   }
@@ -205,17 +250,25 @@ export class UI {
       this.toast(m ? "som desligado" : "som ligado");
     } else if (code === "KeyH") {
       this.el.keys.classList.toggle("hidden");
+    } else if (code === "KeyT") {
+      this.toggleTeams();
+    } else if (code === "KeyV") {
+      if (this.inRoom()) this.game.toggleView();
     } else if (code === "Escape") {
       if (this.inRoom()) this.leaveRoom();
     }
   }
 
-  setRoster(list) {
+  setRoster(list, names) {
+    this.rosterList = list || [];
+    if (names) this.names = { a: names.a || TEAM.a.name, b: names.b || TEAM.b.name };
+    this.el.teamAName.textContent = this.names.a;
+    this.el.teamBName.textContent = this.names.b;
     const me = this.selfId();
     const counts = { a: 0, b: 0 };
-    for (const r of list) counts[r.tm] = (counts[r.tm] || 0) + 1;
-    let html = `<div class="counts"><span class="ca">${TEAM.a.name} ${counts.a}</span><span class="cb">${TEAM.b.name} ${counts.b}</span></div>`;
-    for (const r of list) {
+    for (const r of this.rosterList) counts[r.tm] = (counts[r.tm] || 0) + 1;
+    let html = `<div class="counts"><span class="ca">${esc(this.names.a)} ${counts.a}</span><span class="cb">${esc(this.names.b)} ${counts.b}</span></div>`;
+    for (const r of this.rosterList) {
       const isMe = r.id === me;
       const color = r.rl === "gk" ? TEAM[r.tm].gk : TEAM[r.tm].color;
       html += `<div class="rrow${isMe ? " me" : ""}">
@@ -229,12 +282,72 @@ export class UI {
         </span>`;
       } else {
         const roleName = r.rl === "gk" ? "GOL" : "LINHA";
-        html += `<span class="badge" style="--c:${color}">${TEAM[r.tm].name} · ${roleName}</span>`;
+        html += `<span class="badge" style="--c:${color}">${esc(this.names[r.tm])} · ${roleName}</span>`;
       }
       html += `</div>`;
     }
     this.el.roster.innerHTML = html;
     this.updateLobbyChrome();
+    if (!this.el.teamPanel.classList.contains("hidden")) this.renderTeamPanel();
+  }
+
+  toggleTeams() {
+    if (!this.inRoom()) return;
+    const hidden = this.el.teamPanel.classList.toggle("hidden");
+    if (!hidden) this.renderTeamPanel();
+  }
+
+  setView(mode) {
+    this.view3d = mode === "3d";
+    this.el.btnView.innerHTML = (this.view3d ? "2D" : "3D") + ' <kbd>V</kbd>';
+    if (!this.view3d) this.el.pwr.classList.add("hidden");
+  }
+
+  renderTeamPanel() {
+    if (!this.game || this.game.attract) return;
+    const me = this.selfId();
+    const list = this.game.rosterList ? this.game.rosterList() : this.rosterList || [];
+    const isHost = this.game.mode === "host" || this.game.mode === "local";
+    const mine = list.find((r) => r.id === me);
+    const cols = ["a", "b"]
+      .map((t) => {
+        const players = list.filter((r) => r.tm === t);
+        const full = players.length >= CFG.perTeam;
+        const here = !!mine && mine.tm === t;
+        const rows = players
+          .map(
+            (r) =>
+              `<div class="tp-row"><span class="tp-dot2" style="--c:${r.rl === "gk" ? TEAM[t].gk : TEAM[t].color}"></span>${esc(r.nm)}${r.bot ? ' <i>BOT</i>' : ""}<span class="tp-role">${r.rl === "gk" ? "GOL" : "LINHA"}</span></div>`
+          )
+          .join("");
+        const nameCell = isHost
+          ? `<input class="tp-name" data-name="${t}" maxlength="12" value="${esc(this.names[t])}" spellcheck="false">`
+          : `<div class="tp-name-ro">${esc(this.names[t])}</div>`;
+        const goBtn = here
+          ? `<button class="btn tiny tp-here" disabled>VOCÊ ESTÁ AQUI</button>`
+          : `<button class="btn tiny tp-go ${t}" data-act="go" data-v="${t}"${full ? " disabled" : ""}>${full ? "TIME CHEIO" : "IR PRA CÁ"}</button>`;
+        return `<div class="tp-col tp-${t}">
+          <div class="tp-head">
+            <span class="tp-bar" style="background:${TEAM[t].color}"></span>
+            ${nameCell}
+            <span class="tp-count">${players.length}/${CFG.perTeam}</span>
+          </div>
+          <div class="tp-list">${rows || '<div class="tp-empty">vazio</div>'}</div>
+          ${goBtn}
+        </div>`;
+      })
+      .join("");
+    const roleBtns = mine
+      ? `<div class="tp-role-pick"><span>SUA POSIÇÃO</span>
+          <button class="tl${mine.rl === "line" ? " active" : ""}" data-act="role" data-v="line">LINHA</button>
+          <button class="tg${mine.rl === "gk" ? " active" : ""}" data-act="role" data-v="gk">GOLEIRO</button>
+        </div>`
+      : "";
+    const hint = isHost ? "" : '<div class="tp-hint">só o anfitrião renomeia os times</div>';
+    const nameRow = mine
+      ? `<div class="tp-myname"><span>NOME NA BLUSA</span><input class="tp-name" data-pname maxlength="14" value="${esc(mine.nm)}" spellcheck="false"></div>`
+      : "";
+    this.el.teamPanel.innerHTML = `<div class="tp-title">TIMES</div>${nameRow}<div class="tp-cols">${cols}</div>${roleBtns}${hint}`;
   }
 
   updateLobbyChrome() {
@@ -296,6 +409,29 @@ export class UI {
         this.el.countdown.classList.remove("show");
         this.prev.cd = 0;
       }
+    }
+
+    if (this.view3d) {
+      const me = v.players.find((p) => p.id === v.localId);
+      if (me) {
+        this.el.pwr.classList.remove("hidden");
+        this.el.stamBar.style.width =
+          (clamp(me.stamina / CFG.player.staminaMax, 0, 1) * 100).toFixed(1) + "%";
+        this.el.chargeBar.style.width =
+          (clamp(me.charge || 0, 0, 1) * 100).toFixed(1) + "%";
+      } else {
+        this.el.pwr.classList.add("hidden");
+      }
+    }
+
+    const mine = v.players.find((p) => p.id === v.localId);
+    if (mine) {
+      const s = clamp((mine.special || 0) / CFG.player.specialMax, 0, 1);
+      this.el.spcFill.style.width = (s * 100).toFixed(1) + "%";
+      const turbo = (mine.turbo || 0) > 0;
+      this.el.spc.classList.toggle("ready", s >= 1 && !turbo);
+      this.el.spc.classList.toggle("turbo", turbo);
+      this.el.spcHint.textContent = turbo ? "TURBO!" : s >= 1 ? "PRONTO (R)" : "";
     }
   }
 
