@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="RONALDINHO SOCCER — futebol experimental de navegador, até 10 jogadores online">
+  <title>RONALDINHO SOCCER</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <canvas id="c"></canvas>
+
+  <div id="menu" class="screen">
+    <div class="panel menu-panel">
+      <h1>RONALDINHO <span>SOCCER</span></h1>
+      <p class="tag">futebol experimental de navegador · até 10 players · sem instalar nada</p>
+      <label class="field-label" for="nick">SEU NOME</label>
+      <input id="nick" class="text-input" maxlength="14" placeholder="Jogador" autocomplete="off">
+      <button id="btnPractice" class="btn big primary">TREINO <small>vs bots</small></button>
+      <div class="or"><span>ou jogue online</span></div>
+      <div class="btn-row">
+        <button id="btnCreate" class="btn">CRIAR SALA</button>
+        <input id="code" class="text-input code-input" maxlength="5" placeholder="CÓDIGO" autocomplete="off" spellcheck="false">
+        <button id="btnJoin" class="btn">ENTRAR</button>
+      </div>
+      <div id="connectNote" class="note"></div>
+      <div id="keys" class="keys"></div>
+    </div>
+  </div>
+
+  <div id="lobby" class="screen hidden">
+    <div class="panel lobby-panel">
+      <div class="room-line">
+        <span class="room-label">SALA</span>
+        <b id="roomCode">—————</b>
+        <button id="btnCopy" class="btn tiny">COPIAR</button>
+      </div>
+      <div id="lobbyNote" class="note"></div>
+      <div id="roster" class="roster"></div>
+      <div class="btn-row">
+        <button id="btnStart" class="btn big primary">INICIAR PARTIDA</button>
+        <button id="btnLeave" class="btn ghost">SAIR</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="hud" class="hidden">
+    <div class="scorebar">
+      <span class="team ta">AZUL</span>
+      <span id="scoreA" class="score">0</span>
+      <span class="sep">×</span>
+      <span id="scoreB" class="score">0</span>
+      <span class="team tb">VERMELHO</span>
+      <span class="timer" id="timer">3:00</span>
+    </div>
+    <div id="countdown" class="countdown"></div>
+    <div id="goalBanner" class="banner"></div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <div id="endScreen" class="screen hidden">
+    <div class="panel end-panel">
+      <h2 id="endTitle">FIM DE JOGO</h2>
+      <div id="endScore" class="end-score">0 × 0</div>
+      <div class="btn-row">
+        <button id="btnNewMatch" class="btn big primary">NOVO JOGO</button>
+        <button id="btnEndLeave" class="btn ghost">MENU</button>
+      </div>
+      <div id="endNote" class="note"></div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
