@@ -142,6 +142,12 @@ export class Renderer3D {
     this.plane = null;
     this.planeGroup = null;
     this.playerModel = null;
+    this.camYaw = null;
+    this.camPitch = 0.42;
+    this.mouseIdle = 99;
+    this.dragging = false;
+    this.lastPX = 0;
+    this.lastPY = 0;
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: true,
@@ -158,7 +164,48 @@ export class Renderer3D {
     this.build();
     this.initParticles();
     this.resize();
+    this.bindMouse();
     this.loadModels();
+  }
+
+  bindMouse() {
+    const cv = this.canvas;
+    const down = (e) => {
+      if (e.button !== 0 && e.pointerType === "mouse") return;
+      this.dragging = true;
+      this.lastPX = e.clientX;
+      this.lastPY = e.clientY;
+      try {
+        cv.setPointerCapture(e.pointerId);
+      } catch (err) {}
+    };
+    const move = (e) => {
+      if (!this.dragging) return;
+      const dx = e.clientX - this.lastPX;
+      const dy = e.clientY - this.lastPY;
+      this.lastPX = e.clientX;
+      this.lastPY = e.clientY;
+      if (this.camYaw === null) this.camYaw = 0;
+      this.camYaw -= dx * 0.005;
+      this.camPitch = clamp(this.camPitch + dy * 0.004, 0.1, 1.05);
+      this.mouseIdle = 0;
+    };
+    const up = (e) => {
+      this.dragging = false;
+      try {
+        cv.releasePointerCapture(e.pointerId);
+      } catch (err) {}
+    };
+    cv.addEventListener("pointerdown", down);
+    cv.addEventListener("pointermove", move);
+    cv.addEventListener("pointerup", up);
+    cv.addEventListener("pointercancel", up);
+    this._unbindMouse = () => {
+      cv.removeEventListener("pointerdown", down);
+      cv.removeEventListener("pointermove", move);
+      cv.removeEventListener("pointerup", up);
+      cv.removeEventListener("pointercancel", up);
+    };
   }
 
   build() {
@@ -167,7 +214,7 @@ export class Renderer3D {
     sun.position.set(F.w / 2 - 500, 900, F.h / 2 - 400);
     sun.target.position.set(F.w / 2, 0, F.h / 2);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.mapSize.set(1024, 1024);
     const sc = sun.shadow.camera;
     sc.left = -820;
     sc.right = 820;
@@ -310,43 +357,55 @@ export class Renderer3D {
         color: isGk ? TEAM[p.team].gk : TEAM[p.team].color,
         roughness: 0.55,
       });
-      const dark = new THREE.MeshStandardMaterial({ color: "#20242e", roughness: 0.5 });
-      const torso = new THREE.Mesh(new THREE.CapsuleGeometry(10, 16, 6, 14), kit);
-      torso.position.y = 34;
+      const dark = new THREE.MeshStandardMaterial({ color: "#1b1f2a", roughness: 0.55 });
+      const torso = new THREE.Mesh(new THREE.CapsuleGeometry(9, 14, 6, 14), kit);
+      torso.position.y = 38;
       torso.castShadow = true;
       g.add(torso);
-      const head = new THREE.Mesh(new THREE.SphereGeometry(9, 18, 14), skin);
-      head.position.y = 55;
+      const head = new THREE.Mesh(new THREE.SphereGeometry(8, 18, 14), skin);
+      head.position.y = 58;
       head.castShadow = true;
       g.add(head);
-      const visor = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 3), dark);
-      visor.position.set(0, 55, 8);
+      const hair = new THREE.Mesh(
+        new THREE.SphereGeometry(8.3, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.55),
+        dark
+      );
+      hair.position.y = 58.5;
+      g.add(hair);
+      const visor = new THREE.Mesh(new THREE.BoxGeometry(9, 3.5, 2.5), dark);
+      visor.position.set(0, 57, 7);
       g.add(visor);
-      const armGeo = new THREE.CylinderGeometry(3, 3, 20, 8);
+      const armGeo = new THREE.CylinderGeometry(3, 2.6, 22, 8);
       const mkArm = (side) => {
         const grp = new THREE.Group();
-        grp.position.set(12 * side, 44, 0);
-        const mesh = new THREE.Mesh(armGeo, skin);
-        mesh.position.y = -10;
+        grp.position.set(10.5 * side, 48, 0);
+        const mesh = new THREE.Mesh(armGeo, kit);
+        mesh.position.y = -11;
         mesh.castShadow = true;
         grp.add(mesh);
+        const hand = new THREE.Mesh(new THREE.SphereGeometry(3.4, 10, 8), skin);
+        hand.position.y = -22;
+        grp.add(hand);
         g.add(grp);
         return grp;
       };
       const armL = mkArm(-1);
       const armR = mkArm(1);
-      const fist = new THREE.Mesh(new THREE.SphereGeometry(5, 12, 10), skin);
-      fist.position.set(0, -21, 2);
+      const fist = new THREE.Mesh(new THREE.SphereGeometry(4.2, 12, 10), skin);
+      fist.position.set(0, -23, 2);
       fist.castShadow = true;
       armR.add(fist);
-      const legGeo = new THREE.CylinderGeometry(4, 3, 22, 8);
+      const legGeo = new THREE.CylinderGeometry(4, 3.4, 24, 8);
       const mkLeg = (side) => {
         const grp = new THREE.Group();
-        grp.position.set(5 * side, 22, 0);
+        grp.position.set(5 * side, 26, 0);
         const mesh = new THREE.Mesh(legGeo, dark);
-        mesh.position.y = -11;
+        mesh.position.y = -12;
         mesh.castShadow = true;
         grp.add(mesh);
+        const foot = new THREE.Mesh(new THREE.SphereGeometry(3.8, 10, 8), dark);
+        foot.position.set(0, -24, 2);
+        grp.add(foot);
         g.add(grp);
         return grp;
       };
@@ -794,18 +853,22 @@ export class Renderer3D {
     const bx = view.ball ? view.ball.x : F.w / 2;
     const bz = view.ball ? view.ball.y : F.h / 2;
     if (lp) {
-      if (this.camYaw === undefined || this.camYaw === null) this.camYaw = lp.facing;
-      this.camYaw = angleLerp(this.camYaw, lp.facing, 1 - Math.exp(-3.5 * dt));
+      if (this.camYaw === null) this.camYaw = lp.facing;
+      this.mouseIdle += dt;
       const fx = Math.cos(this.camYaw);
       const fz = Math.sin(this.camYaw);
-      const dist = 320;
-      const height = 185;
+      const dist = 250;
+      const back = Math.cos(this.camPitch) * dist;
+      const height = Math.sin(this.camPitch) * dist + 30;
       this.camPos.lerp(
-        tmpV.set(lp.x - fx * dist, height + lp.z * 0.5, lp.y - fz * dist),
-        1 - Math.exp(-7 * dt)
+        tmpV.set(lp.x - fx * back, height + lp.z * 0.6, lp.y - fz * back),
+        1 - Math.exp(-8 * dt)
       );
-      const ahead = 130;
-      this.camLook.lerp(tmpV.set(lp.x + fx * ahead, 26, lp.y + fz * ahead), 1 - Math.exp(-9 * dt));
+      const ahead = 70;
+      this.camLook.lerp(tmpV.set(lp.x + fx * ahead, 34, lp.y + fz * ahead), 1 - Math.exp(-10 * dt));
+      const mx = 40;
+      this.camPos.x = clamp(this.camPos.x, -mx, F.w + mx);
+      this.camPos.z = clamp(this.camPos.z, -mx, F.h + mx);
     } else {
       const dist = 430;
       const height = 330;
@@ -822,6 +885,7 @@ export class Renderer3D {
   }
 
   dispose() {
+    if (this._unbindMouse) this._unbindMouse();
     try {
       this.renderer.dispose();
     } catch (e) {}

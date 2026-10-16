@@ -142,7 +142,10 @@ export class UI {
       const inp = e.target.closest("input[data-name]");
       if (inp) g.setTeamName(inp.dataset.name, inp.value);
     });
-    this.el.teamPanel.addEventListener("keydown", (e) => e.stopPropagation());
+    this.el.teamPanel.addEventListener("keydown", (e) => {
+      if (e.code === "Escape" || e.code === "Enter") e.target.blur();
+      e.stopPropagation();
+    });
   }
 
   saveNick() {

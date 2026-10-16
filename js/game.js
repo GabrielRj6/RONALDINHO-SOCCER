@@ -1,4 +1,4 @@
-import { CFG, PSTATE, TEAM } from "./config.js";
+import { CFG, BITS, PSTATE, TEAM } from "./config.js";
 import { World, stepPlayer, collidePair, spawnFor } from "./sim.js";
 import { botBits, createBot } from "./ai.js";
 import { Renderer } from "./render.js";
@@ -10,6 +10,41 @@ const r1 = (v) => Math.round(v * 10) / 10;
 const r2 = (v) => Math.round(v * 100) / 100;
 const F = CFG.field;
 const P = CFG.player;
+
+const DIR_BITS = BITS.up | BITS.down | BITS.left | BITS.right;
+const DIRS = [
+  [-Math.PI / 2, BITS.up],
+  [-Math.PI / 4, BITS.up | BITS.right],
+  [0, BITS.right],
+  [Math.PI / 4, BITS.down | BITS.right],
+  [Math.PI / 2, BITS.down],
+  [(3 * Math.PI) / 4, BITS.down | BITS.left],
+  [Math.PI, BITS.left],
+  [(-3 * Math.PI) / 4, BITS.left | BITS.up],
+];
+
+function camRelative(bits, yaw) {
+  const f = (bits & BITS.up ? 1 : 0) - (bits & BITS.down ? 1 : 0);
+  const r = (bits & BITS.right ? 1 : 0) - (bits & BITS.left ? 1 : 0);
+  const rest = bits & ~DIR_BITS;
+  if (!f && !r) return rest;
+  const cy = Math.cos(yaw);
+  const sy = Math.sin(yaw);
+  const wx = f * cy - r * sy;
+  const wy = f * sy + r * cy;
+  const ang = Math.atan2(wy, wx);
+  let best = BITS.up;
+  let bd = Infinity;
+  for (const [a, b] of DIRS) {
+    let d = Math.abs(ang - a);
+    if (d > Math.PI) d = Math.PI * 2 - d;
+    if (d < bd) {
+      bd = d;
+      best = b;
+    }
+  }
+  return rest | best;
+}
 
 export class Game {
   constructor(canvas, input, hooks, canvas3d) {
@@ -506,7 +541,7 @@ export class Game {
   stepLocal(dt) {
     const w = this.world;
     const inputs = {};
-    const mine = this.input.get();
+    const mine = this.localBits();
     inputs.me = mine;
     for (const p of w.players) {
       if (p.id === "me") continue;
@@ -549,7 +584,7 @@ export class Game {
       this.lastSnap && (this.lastSnap.ph === "countdown" || this.lastSnap.ph === "celebrate");
     while (this.acc >= CFG.tick && guard++ < 8) {
       this.acc -= CFG.tick;
-      const raw = this.input.get();
+      const raw = this.localBits();
       const bits = frozen ? 0 : raw;
       this.seq += 1;
       this.sent.push({ s: this.seq, b: bits });
@@ -830,6 +865,14 @@ export class Game {
 
   activeR() {
     return this.use3d && this.r3d ? this.r3d : this.r;
+  }
+
+  localBits() {
+    const raw = this.input.get();
+    if (this.use3d && this.r3d && this.r3d.camYaw !== null && this.r3d.camYaw !== undefined) {
+      return camRelative(raw, this.r3d.camYaw);
+    }
+    return raw;
   }
 
   resize() {

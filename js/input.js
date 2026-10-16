@@ -27,7 +27,10 @@ export class Input {
     this._down = (e) => {
       if (e.code === "Space" || e.code.startsWith("Arrow")) e.preventDefault();
       const tag = e.target && e.target.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
+        if (e.code === "Escape" || e.code === "Enter") e.target.blur();
+        return;
+      }
       if (
         e.code === "KeyM" ||
         e.code === "KeyH" ||
